@@ -147,8 +147,6 @@ Explanation:
 
 8. Post-Pacstrap Configuration
 
-Generate a new fstab if needed, then chroot:
-
 arch-chroot /mnt bash
 
 System Configuration
