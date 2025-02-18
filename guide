@@ -149,7 +149,6 @@ Explanation:
 
 Generate a new fstab if needed, then chroot:
 
-genfstab -U /mnt >> /mnt/etc/fstab
 arch-chroot /mnt bash
 
 System Configuration
