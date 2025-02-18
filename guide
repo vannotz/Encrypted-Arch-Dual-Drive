@@ -1,0 +1,318 @@
+This guide installs Arch Linux on a UEFI system with two encrypted drives:
+
+    NVMe drive: Contains the system (EFI partition and an encrypted partition with LVM).
+    SATA SSD: Used for media storage (encrypted as a single ext4 partition).
+
+Both encrypted partitions are unlocked at boot using a single passphrase via systemd‑cryptsetup’s auto‑unlock (configured through kernel parameters). In addition to the usual system configuration, this guide includes detailed network setup with both WiFi and Ethernet (including MAC randomization), DNS with DNSSEC/DoT, and NTP configuration.
+
+    Note: All commands run as root (or use sudo). Make sure to adjust device names (e.g., /dev/nvme0n1, /dev/sda) and your locale, time zone, and network settings to match your environment.
+
+1. Early Setup: Keyboard and Network (Live Environment)
+Keyboard & WiFi Setup
+
+# Load your keymap (example: br-abnt2)
+loadkeys br-abnt2
+
+# Unblock WiFi if necessary and bring up the interface
+rfkill unblock wifi
+ip link set wlan0 up
+
+# Connect to wireless internet using iwctl
+iwctl
+station wlan0 scan
+station wlan0 get-networks
+station wlan0 connect YOUR_WIFI_SSID
+exit
+
+# Verify network connectivity
+ping -c3 gnu.org
+
+2. Disk Partitioning and Preparation
+Identify Your Disks
+
+Use lsblk to confirm:
+
+    NVMe drive (e.g., /dev/nvme0n1) for the system.
+    SATA SSD (e.g., /dev/sda) for media storage.
+
+Partition the Drives
+
+# Wipe existing partition tables
+sgdisk -Z /dev/nvme0n1
+sgdisk -Z /dev/sda
+
+# Partition NVMe (system disk)
+gdisk /dev/nvme0n1
+# Create two partitions:
+#   1. EFI System Partition (ESP): 512 MB, type ef00, label "ESP"
+#   2. Encrypted system partition: remainder of disk, type 8308, label "crypt"
+
+# Partition SATA SSD (media disk)
+gdisk /dev/sda
+# Create one partition:
+#   1. Encrypted media partition: full disk, type 8308, label "cryptmedia"
+
+# Inform the kernel of changes:
+partprobe -s /dev/nvme0n1
+partprobe -s /dev/sda
+
+3. Encrypting the Partitions
+
+Encrypt both the system and media partitions using LUKS (use the same strong passphrase for both):
+
+# Encrypt system partition on NVMe
+cryptsetup -s 512 -h sha512 -i 5000 luksFormat /dev/nvme0n1p2
+cryptsetup luksOpen /dev/nvme0n1p2 cryptlvm
+
+# Encrypt media partition on SATA SSD
+cryptsetup -s 512 -h sha512 -i 5000 luksFormat /dev/sda1
+cryptsetup luksOpen /dev/sda1 cryptmedia
+
+Note: With proper kernel parameters (see Section 10), systemd‑cryptsetup will cache your passphrase so that you only need to enter it once at boot.
+4. LVM Setup and Filesystem Creation (System Drive)
+Create LVM on the Decrypted System Partition
+
+pvcreate /dev/mapper/cryptlvm
+vgcreate vg /dev/mapper/cryptlvm
+lvcreate --size <xG> vg --name swap    # Recommended: 1.5× your RAM
+lvcreate -l +100%FREE vg --name root
+
+Format Partitions
+
+# Format the EFI partition (NVMe partition 1)
+mkfs.fat -F32 -n ESP /dev/nvme0n1p1
+
+# Format the root LV
+mkfs.ext4 -L ROOT /dev/vg/root
+
+# Format the media partition on the SATA SSD
+mkfs.ext4 -L MEDIA /dev/mapper/cryptmedia
+
+# Setup swap on the LV
+mkswap -L SWAP /dev/vg/swap
+
+5. Mounting Filesystems
+
+Mount the partitions in the correct order:
+
+# Mount the root filesystem first
+mount /dev/vg/root /mnt
+
+# Create mountpoints for EFI and media partitions
+mkdir /mnt/efi /mnt/media
+
+# Mount EFI partition
+mount /dev/nvme0n1p1 /mnt/efi
+
+# Mount media partition
+mount /dev/mapper/cryptmedia /mnt/media
+
+# Enable swap
+swapon /dev/vg/swap
+
+6. Base System Installation
+
+Update mirrors and install packages:
+
+reflector -f 5 -a 24 -c BR -p https --save /etc/pacman.d/mirrorlist --verbose
+
+pacstrap -K /mnt base base-devel linux-zen linux-firmware amd-ucode cryptsetup lvm2 vim git iwd
+
+
+7. fstab Generation and Enhancements
+
+Generate fstab:
+
+genfstab -U /mnt >> /mnt/etc/fstab
+
+Then edit /mnt/etc/fstab to incorporate performance and security options:
+
+    EFI/boot Partition Example:
+    Replace default options with:
+
+UUID=<EFI_UUID>   /efi   vfat   defaults,noatime,fmask=0137,dmask=0027  0 2
+
+This minimizes writes (using noatime) and restricts access (via fmask/dmask).
+
+Root and Media Partitions:
+For example:
+
+    UUID=<ROOT_UUID>  /      ext4   defaults,noatime   0 1
+    UUID=<MEDIA_UUID> /media ext4   defaults,noatime   0 2
+
+Explanation:
+
+    noatime: Reduces disk writes on SSDs by not updating access times.
+    fmask/dmask: Ensure that sensitive partitions like EFI are not world-readable.
+
+8. Post-Pacstrap Configuration
+
+Generate a new fstab if needed, then chroot:
+
+genfstab -U /mnt >> /mnt/etc/fstab
+arch-chroot /mnt bash
+
+System Configuration
+
+    Clock and Timezone:
+
+ln -sf /usr/share/zoneinfo/Region/City /etc/localtime
+hwclock --systohc
+
+Locale:
+
+vim /etc/locale.gen   # Uncomment your desired locales, e.g., en_US.UTF-8
+locale-gen
+vim /etc/locale.conf  # Set: LANG="en_US.UTF-8" and LC_COLLATE="C"
+export LANG="en_US.UTF-8"
+export LC_COLLATE="C"
+
+Console Keymap:
+
+vim /etc/vconsole.conf
+# Set: KEYMAP=br-abnt2
+
+Hostname and Hosts:
+
+echo "arch" > /etc/hostname
+vim /etc/hosts
+# Example content:
+# 127.0.0.1   localhost
+# ::1         localhost
+# 127.0.1.1   arch.localdomain arch
+
+User Setup:
+
+    useradd -mG wheel yourusername
+    passwd               # Set root password
+    passwd yourusername  # Set user password
+    EDITOR=vim visudo   # Uncomment %wheel ALL=(ALL:ALL) ALL
+
+9. Network Configuration (Detailed)
+
+Enable and configure systemd network services for both WiFi and Ethernet.
+Enable Services
+
+systemctl enable systemd-networkd systemd-resolved systemd-timesyncd iwd
+
+WiFi Configuration
+
+    iwd (Wireless Daemon) Configuration:
+    Edit /etc/iwd/main.conf:
+
+[General]
+use_default_interface=true
+AddressRandomization=network
+AddressRandomizationRange=full
+
+systemd-networkd for WiFi:
+Create /etc/systemd/network/wifi.network:
+
+    [Match]
+    Name=wlan0
+
+    [Network]
+    DHCP=yes
+    IPv6PrivacyExtensions=true
+
+Ethernet Configuration
+
+    systemd-networkd for Ethernet:
+    Create /etc/systemd/network/20-wired.network:
+
+[Match]
+Name=eth0
+
+[Link]
+RequiredForOnline=routable
+
+[Network]
+DHCP=yes
+IPv6PrivacyExtensions=true
+
+MAC Address Randomization for Ethernet:
+Create /etc/systemd/network/01-mac.link:
+
+[Match]
+PermanentMACAddress=xx:xx:xx:xx:xx:xx
+
+[Link]
+MACAddress=random
+
+And create a udev rule at /etc/udev/rules.d/81-mac-spoof.rules:
+
+    ACTION=="add", SUBSYSTEM=="net", ATTR{address}=="xx:xx:xx:xx:xx:xx", RUN+="/usr/bin/ip link set dev $name address random"
+
+DNS Configuration (systemd-resolved)
+
+Edit /etc/systemd/resolved.conf:
+
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com
+FallbackDNS=9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net 2620:fe::fe#dns.quad9.net 2620:fe::9#dns.quad9.net
+DNSSEC=yes
+DNSOverTLS=yes
+MulticastDNS=no
+
+Then link the stub resolver:
+
+rm /etc/resolv.conf
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+NTP Configuration (systemd-timesyncd)
+
+Edit /etc/systemd/timesyncd.conf:
+
+[Time]
+NTP=0.br.pool.ntp.org 1.br.pool.ntp.org 2.br.pool.ntp.org 3.br.pool.ntp.org
+FallbackNTP=0.arch.pool.ntp.org 1.arch.pool.ntp.org 2.arch.pool.ntp.org 3.arch.pool.ntp.org
+
+10. Configuring mkinitcpio
+
+Edit /etc/mkinitcpio.conf to set up the initramfs with systemd‑based hooks:
+
+HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt lvm2 filesystems fsck)
+
+Notes:
+
+    block: Included to ensure that device nodes for your partitions are created early during boot.
+    sd-encrypt: Handles LUKS unlocking via systemd. With kernel parameters (see next section), it unlocks both encrypted partitions using the cached passphrase.
+    ext4: We do not add ext4 to MODULES because ext4 support is built into most kernels or auto‑detected.
+
+11. Kernel Command Line Configuration (for Unified Unlock)
+
+Edit your kernel command line (e.g., in /etc/kernel/cmdline or your bootloader entry) to include:
+
+rd.luks.name=<NVMe_UUID>=cryptlvm rd.luks.options=<NVMe_UUID>=discard \
+rd.luks.name=<SATA_UUID>=cryptmedia rd.luks.options=<SATA_UUID>=discard \
+root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw quiet [additional parameters]
+
+Important: You must replace <NVMe_UUID>, <SATA_UUID>, <ROOT_UUID>, and <SWAP_UUID> with the actual UUIDs from running commands such as:
+Shell substitution does not occur at boot, so you need to fill these in manually.
+
+blkid -s UUID -o value /dev/nvme0n1p2
+
+vim /etc/mkinitcpio.d/linux-zen.preset
+
+# uncomment ALL_config="/etc/mkinitcpio.conf" and all UKI related lines
+# comment out all "image" related lines
+# make kernel cmdline and path to .efi
+mkdir -p /efi/EFI/Linux
+
+12. Boot Loader Installation (systemd-boot with UKI)
+
+Install systemd‑boot into your EFI partition:
+
+bootctl install --esp-path=/efi
+
+Ensure that your loader configuration (e.g., /boot/loader/loader.conf) and kernel entry files are set up so that the Unified Kernel Image (UKI) is detected automatically.
+
+    Tip: If you update fstab later, you may run the bootctl install command again to refresh the bootloader entries.
+
+13. Finalizing and Reboot
+
+Exit the chroot and finish the installation:
+
+exit
+sync
+poweroff
