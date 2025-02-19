@@ -50,23 +50,25 @@ sgdisk -Z /dev/nvme0n1
 sgdisk -Z /dev/sda
 ```
 Partition NVMe (System Disk)
-
+```bash
 gdisk /dev/nvme0n1
 # Create two partitions:
 # 1. EFI System Partition (ESP): 512 MB, type ef00, label "ESP"
 # 2. Encrypted system partition: remainder of disk, type 8308, label "crypt"
-
+```
 Partition SATA SSD (Media Disk)
-
+```bash
 gdisk /dev/sda
 # Create one partition:
 # 1. Encrypted media partition: full disk, type 8308, label "cryptmedia"
-
+```
+```bash
 # Inform the kernel of changes
 partprobe -s /dev/nvme0n1
 partprobe -s /dev/sda
+````
 
-3. Encrypting the Partitions
+### 3. Encrypting the Partitions
 
 Encrypt both the system and media partitions using LUKS (use the same strong passphrase):
 
