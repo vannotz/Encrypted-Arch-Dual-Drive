@@ -93,7 +93,7 @@ lvcreate --size <xG> vg --name swap    # Recommended: 1.5× your RAM
 lvcreate -l +100%FREE vg --name root
 ````
 
-## 4.2 Format Partitions
+### 4.2 Format Partitions
 ```bash
 # Format the EFI partition (NVMe partition 1)
 mkfs.fat -F32 -n ESP /dev/nvme0n1p1
