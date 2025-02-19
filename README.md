@@ -1,4 +1,4 @@
-# Arch Linux Encrypted Dual Drive Installation Guide (Full Version)
+# Arch Linux Encrypted Dual Drive Installation Guide
 
 This guide installs Arch Linux on a UEFI system with two encrypted drives:
 
