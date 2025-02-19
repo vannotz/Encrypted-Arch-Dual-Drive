@@ -50,14 +50,14 @@ Use lsblk to confirm:
 sgdisk -Z /dev/nvme0n1
 sgdisk -Z /dev/sda
 ```
-Partition NVMe (System Disk)
+#### Partition NVMe (System Disk)
 ```bash
 gdisk /dev/nvme0n1
 # Create two partitions:
 # 1. EFI System Partition (ESP): 512 MB, type ef00, label "ESP"
 # 2. Encrypted system partition: remainder of disk, type 8308, label "crypt"
 ```
-Partition SATA SSD (Media Disk)
+##### Partition SATA SSD (Media Disk)
 ```bash
 gdisk /dev/sda
 # Create one partition:
@@ -95,6 +95,7 @@ lvcreate -l +100%FREE vg --name root
 ````
 
 ### 4.2 Format Partitions
+
 ```bash
 # Format the EFI partition (NVMe partition 1)
 mkfs.fat -F32 -n ESP /dev/nvme0n1p1
@@ -176,7 +177,7 @@ arch-chroot /mnt bash
 ln -sf /usr/share/zoneinfo/Region/City /etc/localtime
 hwclock --systohc
 ```
-Locale
+#### Locale
 
 Open vim to edit /etc/locale.gen and uncomment your desired locale (e.g., en_US.UTF-8 UTF-8):
 ```bash
@@ -195,7 +196,7 @@ Insert:
 LANG=en_US.UTF-8
 LC_COLLATE=C
 ```
-Console Keymap
+#### Console Keymap
 
 Edit /etc/vconsole.conf with vim:
 ```bash
@@ -205,7 +206,7 @@ Insert:
 ```bash
 KEYMAP=br-abnt2
 ```
-Hostname and Hosts
+#### Hostname and Hosts
 
 Set the hostname:
 ```bash
@@ -221,7 +222,7 @@ Insert:
 ::1         localhost
 127.0.1.1   arch.localdomain arch
 ```
-User Setup
+#### User Setup
 
 Create a new user and set passwords:
 ```bash
@@ -292,128 +293,107 @@ RequiredForOnline=routable
 DHCP=yes
 IPv6PrivacyExtensions=true
 ```
-MAC Address Randomization for Ethernet
+#### MAC Address Randomization for Ethernet
 
 Create the MAC randomization file:
 ```bash
 vim /etc/systemd/network/01-mac.link
-
+```
 Insert:
-
+```bash
 [Match]
 PermanentMACAddress=xx:xx:xx:xx:xx:xx
 
 [Link]
 MACAddress=random
-
+```
 Also, create a udev rule to randomize MAC addresses. Edit:
-
+```bash
 vim /etc/udev/rules.d/81-mac-spoof.rules
-
+```
 Insert:
-
+```bash
 ACTION=="add", SUBSYSTEM=="net", ATTR{address}=="xx:xx:xx:xx:xx:xx", RUN+="/usr/bin/ip link set dev $name address random"
+```
 
-8.4 DNS Configuration (systemd-resolved)
+### 8.4 DNS Configuration (systemd-resolved)
 
 Edit /etc/systemd/resolved.conf with vim:
-
+```bash
 vim /etc/systemd/resolved.conf
-
+```
 Insert:
-
+```bash
 [Resolve]
 DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com
 FallbackDNS=9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net 2620:fe::fe#dns.quad9.net 2620:fe::9#dns.quad9.net
 DNSSEC=yes
 DNSOverTLS=yes
 MulticastDNS=no
+````
 
-Remove the current /etc/resolv.conf and create a symbolic link:
-
-rm -f /etc/resolv.conf
-ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-
-8.5 NTP Configuration (systemd-timesyncd)
+### 8.5 NTP Configuration (systemd-timesyncd)
 
 Edit /etc/systemd/timesyncd.conf with vim:
-
+```bash
 vim /etc/systemd/timesyncd.conf
-
+```
 Insert:
-
+```bash
 [Time]
 NTP=0.br.pool.ntp.org 1.br.pool.ntp.org 2.br.pool.ntp.org 3.br.pool.ntp.org
 FallbackNTP=0.arch.pool.ntp.org 1.arch.pool.ntp.org 2.arch.pool.ntp.org 3.arch.pool.ntp.org
+```
 
-9. Configuring mkinitcpio and UKI
+## 9. Configuring mkinitcpio and UKI
 
 Before regenerating the initramfs, perform the following steps:
 
     Create the UKI directory:
-
+```bash
 mkdir -p /efi/EFI/Linux
-
+```
 Edit the preset file:
 Open vim to edit /etc/mkinitcpio.d/linux-zen.preset:
-
+```bash
 vim /etc/mkinitcpio.d/linux-zen.preset
-
-    Uncomment the line:
-
-        ALL_config="/etc/mkinitcpio.conf"
-
-        Uncomment all lines related to UKI.
-        Comment out all lines related to "image".
-
+```
+    Uncomment all lines related to UKI.
+    Comment out all lines related to "image".
     Optional: Remove any mentions to initramfs from /boot if desired.
-
+    
 Now, regenerate the initramfs:
-
+```bash
 mkinitcpio -P
+````
 
-10. Kernel Command Line Configuration (Unified Unlock)
+## 10. Kernel Command Line Configuration (Unified Unlock)
 
 Edit your kernel command line (for example, in /etc/kernel/cmdline or via your bootloader entry) to include:
-
+```bash
 rd.luks.name=<NVMe_UUID>=cryptlvm rd.luks.options=<NVMe_UUID>=discard \
 rd.luks.name=<SATA_UUID>=cryptmedia rd.luks.options=<SATA_UUID>=discard \
 root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw quiet [additional parameters]
-
+```
     Important: Replace <NVMe_UUID>, <SATA_UUID>, <ROOT_UUID>, and <SWAP_UUID> with the actual UUIDs (e.g., obtained using blkid -s UUID -o value /dev/nvme0n1p2).
 
-11. Boot Loader Installation (systemd‑boot with UKI)
+## 11. Boot Loader Installation (systemd‑boot with UKI)
 
 Install systemd‑boot into the EFI partition:
-
+```bash
 bootctl install --esp-path=/efi
-
+```
 Ensure your loader configuration (for example, /boot/loader/loader.conf) and kernel entry files are set up so that the Unified Kernel Image (UKI) is detected automatically.
 
     Tip: Re-run bootctl install after updating fstab to refresh bootloader entries.
 
-12. Finalizing and Reboot
+## 12. Finalizing and Reboot
 
 Exit the chroot and finish the installation:
-
+```bash
 exit
 sync
 poweroff
-
+```
 After reboot, you should be prompted for the encrypted volumes. Enter your passphrase once, and systemd‑cryptsetup will unlock both the system (LVM root) and media partitions automatically.
 Recap of Key Points
-
-    Systemd Auto-Unlocking:
-    The kernel command line includes two rd.luks.name= entries with corresponding rd.luks.options= (for discard), allowing one passphrase to unlock both LUKS partitions.
-
-    mkinitcpio Hooks:
-    The initramfs is built with systemd‑based hooks (e.g., block, sd-encrypt), while the ext4 module is omitted since it is built into the kernel.
-
-    fstab Enhancements:
-    fstab entries are tuned with noatime (reducing SSD writes) and restrictive masks (fmask=0137, dmask=0027 on EFI) for improved security.
-
-    Network Configuration:
-    WiFi (via iwd and systemd‑networkd) and Ethernet (with MAC randomization) are configured. DNS is set with DNSSEC and DNS‑over‑TLS, and NTP servers are defined.
-
-    General System Settings:
-    Time zone, locale, keymap, hostname, and hosts are configured for a complete installation.
