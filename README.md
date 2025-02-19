@@ -68,7 +68,7 @@ partprobe -s /dev/nvme0n1
 partprobe -s /dev/sda
 ````
 
-### 3. Encrypting the Partitions
+## 3. Encrypting the Partitions
 
 Encrypt both the system and media partitions using LUKS (use the same strong passphrase):
 
