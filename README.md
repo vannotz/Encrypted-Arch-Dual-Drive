@@ -248,7 +248,7 @@ Enable the required network services:
 systemctl enable systemd-networkd systemd-resolved systemd-timesyncd iwd
 ```
 
-## 8.2 WiFi Configuration
+### 8.2 WiFi Configuration
 
 Edit /etc/iwd/main.conf with vim:
 ```bash
