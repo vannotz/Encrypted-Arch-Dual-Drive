@@ -33,6 +33,7 @@ exit
 # Verify connectivity
 ping -c3 gnu.org
 ```
+
 ## 2. Disk Partitioning and Preparation
 
 ### 2.1 Identify Your Disks
@@ -165,117 +166,122 @@ Replace <EFI_UUID>, <ROOT_UUID>, <MEDIA_UUID>, and <SWAP_UUID> with the actual v
 ## 7. Post-pacstrap Configuration (Chroot)
 
 Chroot into the new system:
-
+```bash
 arch-chroot /mnt bash
+```
 
-7.1 System Configuration
+### 7.1 System Configuration
 Clock and Timezone
-
+```bash
 ln -sf /usr/share/zoneinfo/Region/City /etc/localtime
 hwclock --systohc
-
+```
 Locale
 
 Open vim to edit /etc/locale.gen and uncomment your desired locale (e.g., en_US.UTF-8 UTF-8):
-
+```bash
 vim /etc/locale.gen
-
+```
 Then run:
-
+```bash
 locale-gen
-
+```
 Now, create or edit /etc/locale.conf with vim:
-
+```bash
 vim /etc/locale.conf
-
+```
 Insert:
-
+```bash
 LANG=en_US.UTF-8
 LC_COLLATE=C
-
+```
 Console Keymap
 
 Edit /etc/vconsole.conf with vim:
-
+```bash
 vim /etc/vconsole.conf
-
+```
 Insert:
-
+```bash
 KEYMAP=br-abnt2
-
+```
 Hostname and Hosts
 
 Set the hostname:
-
+```bash
 echo "arch" > /etc/hostname
-
+```
 Edit /etc/hosts with vim:
-
+```bash
 vim /etc/hosts
-
+```
 Insert:
-
+```bash
 127.0.0.1   localhost
 ::1         localhost
 127.0.1.1   arch.localdomain arch
-
+```
 User Setup
 
 Create a new user and set passwords:
-
+```bash
 useradd -mG wheel yourusername
 passwd yourusername   # Set user password
 passwd                # Set root password
-
+```
 Enable sudo for the wheel group by editing the sudoers file:
-
+```bash
 EDITOR=vim visudo
-
+```
 Uncomment the line:
-
+```bash
 %wheel ALL=(ALL:ALL) ALL
+```
 
-8. Network Configuration
-8.1 Enable Network Services
+## 8. Network Configuration
+
+### 8.1 Enable Network Services
 
 Enable the required network services:
-
+```bash
 systemctl enable systemd-networkd systemd-resolved systemd-timesyncd iwd
+```
 
-8.2 WiFi Configuration
+## 8.2 WiFi Configuration
 
 Edit /etc/iwd/main.conf with vim:
-
+```bash
 vim /etc/iwd/main.conf
-
+```
 Insert:
-
+```bash
 [General]
 use_default_interface=true
 AddressRandomization=network
 AddressRandomizationRange=full
-
+```
 Create the WiFi network configuration for systemd‑networkd:
-
+```bash
 vim /etc/systemd/network/wifi.network
-
+```
 Insert:
-
+```bash
 [Match]
 Name=wlan0
 
 [Network]
 DHCP=yes
 IPv6PrivacyExtensions=true
+```
 
-8.3 Ethernet Configuration
+### 8.3 Ethernet Configuration
 
 Create the Ethernet network configuration:
-
+```bash
 vim /etc/systemd/network/20-wired.network
-
+```
 Insert:
-
+```bash
 [Match]
 Name=eth0
 
@@ -285,11 +291,11 @@ RequiredForOnline=routable
 [Network]
 DHCP=yes
 IPv6PrivacyExtensions=true
-
+```
 MAC Address Randomization for Ethernet
 
 Create the MAC randomization file:
-
+```bash
 vim /etc/systemd/network/01-mac.link
 
 Insert:
