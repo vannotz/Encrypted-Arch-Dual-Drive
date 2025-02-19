@@ -71,7 +71,7 @@ partprobe -s /dev/sda
 ## 3. Encrypting the Partitions
 
 Encrypt both the system and media partitions using LUKS (use the same strong passphrase):
-
+```bash
 # Encrypt system partition on NVMe
 cryptsetup -s 512 -h sha512 -i 5000 luksFormat /dev/nvme0n1p2
 cryptsetup luksOpen /dev/nvme0n1p2 cryptlvm
@@ -79,18 +79,22 @@ cryptsetup luksOpen /dev/nvme0n1p2 cryptlvm
 # Encrypt media partition on SATA SSD
 cryptsetup -s 512 -h sha512 -i 5000 luksFormat /dev/sda1
 cryptsetup luksOpen /dev/sda1 cryptmedia
-
+```
 Note: With proper kernel parameters (see Section 10), systemd‑cryptsetup caches your passphrase so you only need to enter it once at boot.
-4. LVM Setup and Filesystem Creation (System Drive)
-4.1 Create LVM on the Decrypted System Partition
 
+## 4. LVM Setup and Filesystem Creation (System Drive)
+
+### 4.1 Create LVM on the Decrypted System Partition
+
+```bash
 pvcreate /dev/mapper/cryptlvm
 vgcreate vg /dev/mapper/cryptlvm
 lvcreate --size <xG> vg --name swap    # Recommended: 1.5× your RAM
 lvcreate -l +100%FREE vg --name root
+````
 
-4.2 Format Partitions
-
+## 4.2 Format Partitions
+```bash
 # Format the EFI partition (NVMe partition 1)
 mkfs.fat -F32 -n ESP /dev/nvme0n1p1
 
@@ -102,11 +106,12 @@ mkfs.ext4 -L MEDIA /dev/mapper/cryptmedia
 
 # Setup swap on the LV
 mkswap -L SWAP /dev/vg/swap
+```
 
-5. Mounting Filesystems
+## 5. Mounting Filesystems
 
 Mount the partitions in the correct order:
-
+```bash
 # Mount the root filesystem
 mount /dev/vg/root /mnt
 
@@ -121,25 +126,28 @@ mount /dev/mapper/cryptmedia /mnt/media
 
 # Enable swap
 swapon /dev/vg/swap
+```
 
-6. Base System Installation and fstab Generation
-6.1 Install the Base System
+## 6. Base System Installation and fstab Generation
+
+### 6.1 Install the Base System
 
 Update mirrors and install packages with pacstrap:
-
+```bash
 reflector -f 5 -a 24 -c BR -p https --save /etc/pacman.d/mirrorlist --verbose
 
 pacstrap -K /mnt base base-devel linux-zen linux-firmware amd-ucode cryptsetup lvm2 vim git iwd
 # (For Intel CPUs, use intel-ucode instead of amd-ucode.)
+```
 
-6.2 Generate and Edit fstab
+### 6.2 Generate and Edit fstab
 
 Generate fstab:
-
+```bash
 genfstab -U /mnt >> /mnt/etc/fstab
-
+```
 Now, open vim to edit /mnt/etc/fstab and adjust the entries. For example, replace the generated entries with:
-
+```bash
 # EFI partition
 UUID=<EFI_UUID>   /efi   vfat   defaults,noatime,fmask=0137,dmask=0027  0 2
 
@@ -151,9 +159,10 @@ UUID=<MEDIA_UUID> /media ext4   defaults,noatime   0 2
 
 # Swap
 UUID=<SWAP_UUID>  none   swap   sw    0 0
-
+```
 Replace <EFI_UUID>, <ROOT_UUID>, <MEDIA_UUID>, and <SWAP_UUID> with the actual values from your system.
-7. Post-pacstrap Configuration (Chroot)
+
+## 7. Post-pacstrap Configuration (Chroot)
 
 Chroot into the new system:
 
