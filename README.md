@@ -90,7 +90,7 @@ Note: With proper kernel parameters (see Section 10), systemd‑cryptsetup cache
 ```bash
 pvcreate /dev/mapper/cryptlvm
 vgcreate vg /dev/mapper/cryptlvm
-lvcreate --size <xG> vg --name swap    # Recommended: 1.5× your RAM
+lvcreate -L <xG> vg --name swap    # Recommended: 1.5× your RAM, where x is the swap size
 lvcreate -l +100%FREE vg --name root
 ````
 
@@ -396,4 +396,3 @@ sync
 poweroff
 ```
 After reboot, you should be prompted for the encrypted volumes. Enter your passphrase once, and systemd‑cryptsetup will unlock both the system (LVM root) and media partitions automatically.
-Recap of Key Points
