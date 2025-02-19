@@ -33,15 +33,16 @@ exit
 # Verify connectivity
 ping -c3 gnu.org
 ```
-2. Disk Partitioning and Preparation
-2.1 Identify Your Disks
+## 2. Disk Partitioning and Preparation
+
+### 2.1 Identify Your Disks
 
 Use lsblk to confirm:
 
     NVMe drive (e.g., /dev/nvme0n1) for the system.
     SATA SSD (e.g., /dev/sda) for media storage.
 
-2.2 Partition the Drives
+### 2.2 Partition the Drives
 
 ```bash
 # Wipe existing partition tables
