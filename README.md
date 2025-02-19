@@ -171,7 +171,7 @@ arch-chroot /mnt bash
 ```
 
 ### 7.1 System Configuration
-# Clock and Timezone
+#### Clock and Timezone
 ```bash
 ln -sf /usr/share/zoneinfo/Region/City /etc/localtime
 hwclock --systohc
