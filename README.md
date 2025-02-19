@@ -32,7 +32,7 @@ exit
 
 # Verify connectivity
 ping -c3 gnu.org
-
+```
 2. Disk Partitioning and Preparation
 2.1 Identify Your Disks
 
@@ -43,10 +43,11 @@ Use lsblk to confirm:
 
 2.2 Partition the Drives
 
+```bash
 # Wipe existing partition tables
 sgdisk -Z /dev/nvme0n1
 sgdisk -Z /dev/sda
-
+```
 Partition NVMe (System Disk)
 
 gdisk /dev/nvme0n1
