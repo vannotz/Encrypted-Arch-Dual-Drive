@@ -1,3 +1,5 @@
+Arch Linux Encrypted Dual Drive Installation Guide (Full Version)
+
 This guide installs Arch Linux on a UEFI system with two encrypted drives:
 
     NVMe drive: Contains the system (EFI partition and an encrypted partition with LVM).
@@ -41,13 +43,15 @@ Partition the Drives
 sgdisk -Z /dev/nvme0n1
 sgdisk -Z /dev/sda
 
-# Partition NVMe (system disk)
+Partition NVMe (system disk)
+
 gdisk /dev/nvme0n1
 # Create two partitions:
 #   1. EFI System Partition (ESP): 512 MB, type ef00, label "ESP"
 #   2. Encrypted system partition: remainder of disk, type 8308, label "crypt"
 
-# Partition SATA SSD (media disk)
+Partition SATA SSD (media disk)
+
 gdisk /dev/sda
 # Create one partition:
 #   1. Encrypted media partition: full disk, type 8308, label "cryptmedia"
@@ -68,7 +72,8 @@ cryptsetup luksOpen /dev/nvme0n1p2 cryptlvm
 cryptsetup -s 512 -h sha512 -i 5000 luksFormat /dev/sda1
 cryptsetup luksOpen /dev/sda1 cryptmedia
 
-Note: With proper kernel parameters (see Section 10), systemd‑cryptsetup will cache your passphrase so that you only need to enter it once at boot.
+    Note: With proper kernel parameters (see Section 10), systemd‑cryptsetup will cache your passphrase so that you only need to enter it once at boot.
+
 4. LVM Setup and Filesystem Creation (System Drive)
 Create LVM on the Decrypted System Partition
 
@@ -110,7 +115,33 @@ mount /dev/mapper/cryptmedia /mnt/media
 # Enable swap
 swapon /dev/vg/swap
 
-6. Base System Installation
+6. fstab Generation and Enhancements
+
+Generate fstab:
+
+genfstab -U /mnt >> /mnt/etc/fstab
+
+Then edit /mnt/etc/fstab to incorporate performance and security options:
+EFI/boot Partition Example
+
+Replace default options with:
+
+UUID=<EFI_UUID>   /efi   vfat   defaults,noatime,fmask=0137,dmask=0027  0 2
+
+This minimizes writes (using noatime) and restricts access (via fmask/dmask).
+Root and Media Partitions
+
+For example:
+
+UUID=<ROOT_UUID>  /      ext4   defaults,noatime   0 1
+UUID=<MEDIA_UUID> /media ext4   defaults,noatime   0 2
+
+Explanation:
+
+    noatime: Reduces disk writes on SSDs by not updating access times.
+    fmask/dmask: Ensure that sensitive partitions like EFI are not world-readable.
+
+7. Base System Installation
 
 Update mirrors and install packages:
 
@@ -118,45 +149,22 @@ reflector -f 5 -a 24 -c BR -p https --save /etc/pacman.d/mirrorlist --verbose
 
 pacstrap -K /mnt base base-devel linux-zen linux-firmware amd-ucode cryptsetup lvm2 vim git iwd
 
-
-7. fstab Generation and Enhancements
-
-Generate fstab:
-
-genfstab -U /mnt >> /mnt/etc/fstab
-
-Then edit /mnt/etc/fstab to incorporate performance and security options:
-
-    EFI/boot Partition Example:
-    Replace default options with:
-
-UUID=<EFI_UUID>   /efi   vfat   defaults,noatime,fmask=0137,dmask=0027  0 2
-
-This minimizes writes (using noatime) and restricts access (via fmask/dmask).
-
-Root and Media Partitions:
-For example:
-
-    UUID=<ROOT_UUID>  /      ext4   defaults,noatime   0 1
-    UUID=<MEDIA_UUID> /media ext4   defaults,noatime   0 2
-
-Explanation:
-
-    noatime: Reduces disk writes on SSDs by not updating access times.
-    fmask/dmask: Ensure that sensitive partitions like EFI are not world-readable.
+# (Use intel-ucode for Intel CPUs.)
 
 8. Post-Pacstrap Configuration
 
+Generate a new fstab if needed, then chroot:
+
+genfstab -U /mnt >> /mnt/etc/fstab
 arch-chroot /mnt bash
 
 System Configuration
-
-    Clock and Timezone:
+Clock and Timezone
 
 ln -sf /usr/share/zoneinfo/Region/City /etc/localtime
 hwclock --systohc
 
-Locale:
+Locale
 
 vim /etc/locale.gen   # Uncomment your desired locales, e.g., en_US.UTF-8
 locale-gen
@@ -164,12 +172,12 @@ vim /etc/locale.conf  # Set: LANG="en_US.UTF-8" and LC_COLLATE="C"
 export LANG="en_US.UTF-8"
 export LC_COLLATE="C"
 
-Console Keymap:
+Console Keymap
 
 vim /etc/vconsole.conf
 # Set: KEYMAP=br-abnt2
 
-Hostname and Hosts:
+Hostname and Hosts
 
 echo "arch" > /etc/hostname
 vim /etc/hosts
@@ -178,12 +186,12 @@ vim /etc/hosts
 # ::1         localhost
 # 127.0.1.1   arch.localdomain arch
 
-User Setup:
+User Setup
 
-    useradd -mG wheel yourusername
-    passwd               # Set root password
-    passwd yourusername  # Set user password
-    EDITOR=vim visudo   # Uncomment %wheel ALL=(ALL:ALL) ALL
+useradd -mG wheel yourusername
+passwd               # Set root password
+passwd yourusername  # Set user password
+EDITOR=vim visudo   # Uncomment %wheel ALL=(ALL:ALL) ALL
 
 9. Network Configuration (Detailed)
 
@@ -193,29 +201,30 @@ Enable Services
 systemctl enable systemd-networkd systemd-resolved systemd-timesyncd iwd
 
 WiFi Configuration
+iwd (Wireless Daemon) Configuration
 
-    iwd (Wireless Daemon) Configuration:
-    Edit /etc/iwd/main.conf:
+Edit /etc/iwd/main.conf:
 
 [General]
 use_default_interface=true
 AddressRandomization=network
 AddressRandomizationRange=full
 
-systemd-networkd for WiFi:
+systemd-networkd for WiFi
+
 Create /etc/systemd/network/wifi.network:
 
-    [Match]
-    Name=wlan0
+[Match]
+Name=wlan0
 
-    [Network]
-    DHCP=yes
-    IPv6PrivacyExtensions=true
+[Network]
+DHCP=yes
+IPv6PrivacyExtensions=true
 
 Ethernet Configuration
+systemd-networkd for Ethernet
 
-    systemd-networkd for Ethernet:
-    Create /etc/systemd/network/20-wired.network:
+Create /etc/systemd/network/20-wired.network:
 
 [Match]
 Name=eth0
@@ -227,7 +236,8 @@ RequiredForOnline=routable
 DHCP=yes
 IPv6PrivacyExtensions=true
 
-MAC Address Randomization for Ethernet:
+MAC Address Randomization for Ethernet
+
 Create /etc/systemd/network/01-mac.link:
 
 [Match]
@@ -238,7 +248,7 @@ MACAddress=random
 
 And create a udev rule at /etc/udev/rules.d/81-mac-spoof.rules:
 
-    ACTION=="add", SUBSYSTEM=="net", ATTR{address}=="xx:xx:xx:xx:xx:xx", RUN+="/usr/bin/ip link set dev $name address random"
+ACTION=="add", SUBSYSTEM=="net", ATTR{address}=="xx:xx:xx:xx:xx:xx", RUN+="/usr/bin/ip link set dev $name address random"
 
 DNS Configuration (systemd-resolved)
 
@@ -276,25 +286,23 @@ Notes:
     sd-encrypt: Handles LUKS unlocking via systemd. With kernel parameters (see next section), it unlocks both encrypted partitions using the cached passphrase.
     ext4: We do not add ext4 to MODULES because ext4 support is built into most kernels or auto‑detected.
 
+Then regenerate the initramfs:
+
+mkinitcpio -P
+
 11. Kernel Command Line Configuration (for Unified Unlock)
 
 Edit your kernel command line (e.g., in /etc/kernel/cmdline or your bootloader entry) to include:
 
-rd.luks.name=<NVMe_UUID>=cryptlvm rd.luks.options=<NVMe_UUID>=discard \
-rd.luks.name=<SATA_UUID>=cryptmedia rd.luks.options=<SATA_UUID>=discard \
+rd.luks.name=<NVMe_UUID>=cryptlvm \
+rd.luks.name=<SATA_UUID>=cryptmedia \
 root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw quiet [additional parameters]
 
-Important: You must replace <NVMe_UUID>, <SATA_UUID>, <ROOT_UUID>, and <SWAP_UUID> with the actual UUIDs from running commands such as:
-Shell substitution does not occur at boot, so you need to fill these in manually.
+    Important: You must replace <NVMe_UUID>, <SATA_UUID>, <ROOT_UUID>, and <SWAP_UUID> with the actual UUIDs from running commands such as:
 
-blkid -s UUID -o value /dev/nvme0n1p2
+    blkid -s UUID -o value /dev/nvme0n1p2
 
-vim /etc/mkinitcpio.d/linux-zen.preset
-
-# uncomment ALL_config="/etc/mkinitcpio.conf" and all UKI related lines
-# comment out all "image" related lines
-# make kernel cmdline and path to .efi
-mkdir -p /efi/EFI/Linux
+    Shell substitution does not occur at boot, so you need to fill these in manually.
 
 12. Boot Loader Installation (systemd-boot with UKI)
 
@@ -313,3 +321,5 @@ Exit the chroot and finish the installation:
 exit
 sync
 poweroff
+
+After reboot, you should see a prompt for the encrypted volumes. Enter your passphrase once, and systemd‑cryptsetup will unlock both the system (LVM root) and media partitions automatically.
