@@ -404,8 +404,6 @@ vim /etc/pacman.d/hooks/95-systemd-boot.hook
 ```
 This hook will run anytime a systemd related package is upgraded.
 ```bash
-/etc/pacman.d/hooks/95-systemd-boot.hook
-
 [Trigger]
 Type = Package
 Operation = Upgrade
