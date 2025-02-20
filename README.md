@@ -397,11 +397,12 @@ Ensure your loader configuration (for example, /boot/loader/loader.conf) and ker
 
     Tip: Re-run bootctl install after updating fstab and your UKIs to refresh bootloader entries.
 
-You may create a pacman hook to update bootctl whenever systemd is upgraded, however you should still pay attention to any changes that may warrent an update
+You may create a pacman hook to update bootctl whenever systemd is upgraded, however you should still pay attention to any changes that may warrent an update:
 ```bash
 mkdir /etc/pacman.d/hooks
 vim /etc/pacman.d/hooks/95-systemd-boot.hook
 ```
+This hook will run anytime a systemd related package is upgraded.
 ```bash
 /etc/pacman.d/hooks/95-systemd-boot.hook
 
