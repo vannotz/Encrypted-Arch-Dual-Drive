@@ -426,3 +426,45 @@ sync
 poweroff
 ```
 After reboot, you should be prompted for the encrypted volumes. Enter your passphrase once, and systemd‑cryptsetup will unlock both the system (LVM root) and media partitions automatically.
+
+---
+
+# Post Install addons
+
+## 1. Enable silent boot
+
+### 1.1. Silent autologin after boot
+
+Autoling into your user, so you only have to type your password once
+```bash
+mkdir -p /etc/systemd/system/getty@tty1.service.d/
+vim /etc/systemd/system/getty@tty1.service.d/autologin.conf
+```
+Replace username with your username
+```bash
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin username --noclear %I $TERM
+```
+
+### 1.2. Disable most kernel messages
+
+```bash
+vim /etc/kernel/cmdline
+```
+Add these kernel parameters at the end of your kernel command line
+```bash
+quiet loglevel=3 systemd.show_status=auto rd.udev.log_level=3
+```
+
+## 2. Enable audio with pipewire and wireplumber
+
+```bash
+pacman -S pipewire pipewire-pulse pipewire-alsa pipewire-jack wireplumber
+```
+Enable pipewire and wireplumber *this command will NOT work as root*
+```bash
+systemctl --user enable pipewire pipewire-pulse wireplumber
+```
+
+
