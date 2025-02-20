@@ -362,6 +362,10 @@ vim /etc/mkinitcpio.d/linux-zen.preset
     Comment out all lines related to "image".
     Optional: Remove any mentions to initramfs from /boot if desired.
 
+Edit /etc/mkinitcpio.conf with vim to set up the initramfs with systemd‑based hooks:
+```bash
+vim /etc/mkinitcpio.conf
+```
 Locate the line starting with HOOKS= and change it to:
 ```bash
 HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt lvm2 filesystems fsck)
