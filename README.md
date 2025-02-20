@@ -395,7 +395,26 @@ bootctl install --esp-path=/efi
 ```
 Ensure your loader configuration (for example, /boot/loader/loader.conf) and kernel entry files are set up so that the Unified Kernel Image (UKI) is detected automatically.
 
-    Tip: Re-run bootctl install after updating fstab to refresh bootloader entries.
+    Tip: Re-run bootctl install after updating fstab and your UKIs to refresh bootloader entries.
+
+You may create a pacman hook to update bootctl whenever systemd is upgraded, however you should still pay attention to any changes that may warrent an update
+```bash
+mkdir /etc/pacman.d/hooks
+vim /etc/pacman.d/hooks/95-systemd-boot.hook
+```
+```bash
+/etc/pacman.d/hooks/95-systemd-boot.hook
+
+[Trigger]
+Type = Package
+Operation = Upgrade
+Target = systemd
+
+[Action]
+Description = Gracefully upgrading systemd-boot...
+When = PostTransaction
+Exec = /usr/bin/systemctl restart systemd-boot-update.service
+```
 
 ## 12. Finalizing and Reboot
 
