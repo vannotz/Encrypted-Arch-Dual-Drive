@@ -435,7 +435,7 @@ After reboot, you should be prompted for the encrypted volumes. Enter your passp
 
 ### 1.1. Silent autologin after boot
 
-Autoling into your user, so you only have to type your password once
+Autologin into your user, so you only have to type your password once
 ```bash
 mkdir -p /etc/systemd/system/getty@tty1.service.d/
 vim /etc/systemd/system/getty@tty1.service.d/autologin.conf
@@ -447,7 +447,7 @@ ExecStart=
 ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin username --noclear %I $TERM
 ```
 
-### 1.2. Disable most kernel messages
+### 1.2. Disable most kernel messages at boot
 
 ```bash
 vim /etc/kernel/cmdline
