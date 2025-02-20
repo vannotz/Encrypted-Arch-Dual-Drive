@@ -55,7 +55,7 @@ sgdisk -Z /dev/sda
 gdisk /dev/nvme0n1
 # Create two partitions:
 # 1. EFI System Partition (ESP): 512 MB, type ef00, label "ESP"
-# 2. Encrypted system partition: remainder of disk, type 8308, label "crypt"
+# 2. Encrypted system partition: remainder of disk, type 8308, label "cryptlvm"
 ```
 ##### Partition SATA SSD (Media Disk)
 ```bash
