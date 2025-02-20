@@ -381,7 +381,7 @@ rd.luks.name=<SATA_UUID>=cryptmedia rd.luks.options=<SATA_UUID>=discard \
 root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw quiet [additional parameters]
 ```
     Important: Replace <NVMe_UUID>, <SATA_UUID>, <ROOT_UUID>, and <SWAP_UUID> with the actual UUIDs (e.g., obtained using blkid -s UUID -o value /dev/nvme0n1p2).
-
+    My additional parameters: ... loglevel=3 systemd.show.status=auto rd.udev.log_level=3 zswap.compressor=lz4 sysctl.vm.swappiness=10 nowatchdog module_blacklist=nouveau,iTCO_wdt,sp5100_tco_wdat_wdt,pcspkr
 Now, regenerate the initramfs:
 ```bash
 mkinitcpio -P
@@ -462,7 +462,7 @@ quiet loglevel=3 systemd.show_status=auto rd.udev.log_level=3
 ```bash
 pacman -S pipewire pipewire-pulse pipewire-alsa pipewire-jack wireplumber
 ```
-Enable pipewire and wireplumber *this command will NOT work as root*
+Enable pipewire and wireplumber, *this command will NOT work as root*
 ```bash
 systemctl --user enable pipewire pipewire-pulse wireplumber
 ```
