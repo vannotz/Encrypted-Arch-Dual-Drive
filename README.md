@@ -361,11 +361,6 @@ vim /etc/mkinitcpio.d/linux-zen.preset
     Uncomment all lines related to UKI.
     Comment out all lines related to "image".
     Optional: Remove any mentions to initramfs from /boot if desired.
-    
-Now, regenerate the initramfs:
-```bash
-mkinitcpio -P
-````
 
 ## 10. Kernel Command Line Configuration (Unified Unlock)
 
@@ -376,6 +371,11 @@ rd.luks.name=<SATA_UUID>=cryptmedia rd.luks.options=<SATA_UUID>=discard \
 root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw quiet [additional parameters]
 ```
     Important: Replace <NVMe_UUID>, <SATA_UUID>, <ROOT_UUID>, and <SWAP_UUID> with the actual UUIDs (e.g., obtained using blkid -s UUID -o value /dev/nvme0n1p2).
+
+Now, regenerate the initramfs:
+```bash
+mkinitcpio -P
+````
 
 ## 11. Boot Loader Installation (systemd‑boot with UKI)
 
