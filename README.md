@@ -260,6 +260,8 @@ Insert:
 use_default_interface=true
 AddressRandomization=network
 AddressRandomizationRange=full
+AlwaysRandomizeAddress=true
+
 ```
 Create the WiFi network configuration for systemd‑networkd:
 ```bash
@@ -302,18 +304,7 @@ vim /etc/systemd/network/01-mac.link
 Insert:
 ```bash
 [Match]
-PermanentMACAddress=xx:xx:xx:xx:xx:xx
-
-[Link]
-MACAddress=random
-```
-Also, create a udev rule to randomize MAC addresses. Edit:
-```bash
-vim /etc/udev/rules.d/81-mac-spoof.rules
-```
-Insert:
-```bash
-ACTION=="add", SUBSYSTEM=="net", ATTR{address}=="xx:xx:xx:xx:xx:xx", RUN+="/usr/bin/ip link set dev $name address random"
+MACAddressPolicy=random
 ```
 
 ### 8.4 DNS Configuration (systemd-resolved)
