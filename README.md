@@ -361,7 +361,6 @@ Locate the line starting with HOOKS= and change it to:
 ```bash
 HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt lvm2 filesystems fsck)
 ```
-You may remove fsck since it is handled by the systemd hook, same with block, but that is less recomended
 
 ## 10. Kernel Command Line Configuration (Unified Unlock)
 
