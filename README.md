@@ -456,10 +456,17 @@ systemctl --user enable pipewire pipewire-pulse wireplumber
 ```
 
 ## 3. Use networkd to resolve your DNS, stuff will break without this
+
 ```bash
 rm -f /etc/resolv.conf
 ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 ```
 You might not be able to do this during setup, so I included it here
 
+## 4. Make sub-directories under /media accesible to users in the wheel group
 
+```bash
+mkdir /media/whatever
+chown root:wheel whatever
+chmod 770 whatever
+```
