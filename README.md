@@ -1,29 +1,32 @@
 # Arch Linux Encrypted Dual Drive Installation Guide
 
-This guide installs Arch Linux on a UEFI system with two encrypted drives:
+This guide installs Arch Linux on a UEFI system with multiple encrypted drives:
 
-- NVMe drive: Contains the system (EFI partition and an encrypted partition with LVM).
-- SATA SSD: Used for media storage (encrypted as a single ext4 partition).
+- **NVMe drive**: `${SYS_DISK}` — contains the system (EFI partition and an encrypted partition with LVM).  
+- **SATA SSD**: `${MEDIA_DISK}` — used for media storage (encrypted as a single ext4 partition).  
+- **Optional**: Secure Boot and TPM 2.0.
 
-Both encrypted partitions are unlocked at boot using a single passphrase via systemd‑cryptsetup’s auto‑unlock (configured through kernel parameters). In addition, this guide covers detailed network setup (WiFi and Ethernet with MAC randomization), DNS with DNSSEC/DoT, and NTP configuration.
+If you plan to use Secure Boot, set it to **Setup Mode** in the BIOS. If using TPM, ensure your system supports **TPM 2.0** since this guide does not cover older versions. You can skip Secure Boot or TPM steps if you do not need them, and you can choose to use only one or the other. However, if you use TPM without Secure Boot, remove `7` from `--tpm2-pcrs=0+7+15` in Section 14. If you only have one disk, ignore commands related to the second disk (`${MEDIA_DISK}`).
 
-**Note:** All commands are executed as root (or with `sudo`). Adjust device names (e.g., `/dev/nvme0n1`, `/dev/sda`), locale, time zone, and network settings as needed. **Backup any important data before proceeding.**
+Both encrypted partitions are unlocked at boot using a single passphrase via `systemd-cryptsetup` auto-unlock (configured through kernel parameters, meaning no `crypttab`) and TPM. This guide also covers detailed network setup (Wi-Fi and/or Ethernet with MAC randomization, DNS with DNSSEC/DoT, and NTP/NTS).
+
+**Note:** All commands assume root privileges (or `sudo`). Adjust device names (e.g., `/dev/nvme0n1`, `/dev/sda`), locale (e.g., `en_US.UTF-8`), timezone, and network settings (e.g., `wlan0`, `eth0`) as needed. **Backup important data before proceeding!**
 
 ---
 
 ## 1. Early Setup: Keyboard and Network (Live Environment)
 
-### 1.1 Keyboard & WiFi Setup
+### 1.1 Keyboard & Wi-Fi Setup
 
 ```bash
 # Load your keymap (example: br-abnt2)
 loadkeys br-abnt2
 
-# Unblock WiFi and bring up the interface
+# Unblock Wi-Fi and bring up the interface
 rfkill unblock wifi
 ip link set wlan0 up
 
-# Connect to wireless using iwctl
+# Connect to Wi-Fi using iwctl
 iwctl
 station wlan0 scan
 station wlan0 get-networks
@@ -31,260 +34,367 @@ station wlan0 connect YOUR_WIFI_SSID
 exit
 
 # Verify connectivity
-ping -c3 gnu.org
+ping -c 3 gnu.org
 ```
+
+---
 
 ## 2. Disk Partitioning and Preparation
 
-### 2.1 Identify Your Disks
+### 2.1 Identify your disks
 
-Use lsblk to confirm:
+Use `lsblk` to confirm disk names:
 
-    NVMe drive (e.g., /dev/nvme0n1) for the system.
-    SATA SSD (e.g., /dev/sda) for media storage.
+- NVMe drive (e.g., `/dev/nvme0n1`) for the system.  
+- SATA SSD (e.g., `/dev/sda`) for media storage.
 
-### 2.2 Partition the Drives
+### 2.2 Export your drive paths
+
+```bash
+# Example:
+# export SYS_DISK="/dev/nvme0n1"
+# export MEDIA_DISK="/dev/sda"
+
+# In a VM, your main disk might be /dev/vda and your second /dev/vdb.
+# Always check with lsblk.
+
+export SYS_DISK="/dev/nvme0n1"
+export MEDIA_DISK="/dev/sda"
+
+# If a disk is NVMe, then values like ${SYS_DISK}2 or ${SYS_DISK}1 should instead be ${SYS_DISK}p2 or ${SYS_DISK}p1
+```
+
+### 2.3 Partition the drives
 
 ```bash
 # Wipe existing partition tables
-sgdisk -Z /dev/nvme0n1
-sgdisk -Z /dev/sda
+sgdisk -Z ${SYS_DISK}
+sgdisk -Z ${MEDIA_DISK}
 ```
-#### Partition NVMe (System Disk)
+
+#### Partition NVMe (system disk)
+
 ```bash
-gdisk /dev/nvme0n1
+gdisk ${SYS_DISK}
 # Create two partitions:
 # 1. EFI System Partition (ESP): 512 MB, type ef00, label "ESP"
-# 2. Encrypted system partition: remainder of disk, type 8308, label "cryptlvm"
+# 2. Encrypted system partition: remainder of disk, type 8309, label "cryptlvm"
 ```
-##### Partition SATA SSD (Media Disk)
-```bash
-gdisk /dev/sda
-# Create one partition:
-# 1. Encrypted media partition: full disk, type 8308, label "cryptmedia"
-```
-```bash
-# Inform the kernel of changes
-partprobe -s /dev/nvme0n1
-partprobe -s /dev/sda
-````
 
-## 3. Encrypting the Partitions
+#### Partition SATA SSD (media disk)
+
+```bash
+gdisk ${MEDIA_DISK}
+# Create one partition:
+# 1. Encrypted media partition: full disk, type 8309, label "cryptmedia"
+```
+
+```bash
+# Inform the kernel of partition changes
+partprobe -s ${SYS_DISK}
+partprobe -s ${MEDIA_DISK}
+```
+
+---
+
+## 3. Encrypting the partitions
 
 Encrypt both the system and media partitions using LUKS (use the same strong passphrase):
+
 ```bash
 # Encrypt system partition on NVMe
-cryptsetup -s 512 -h sha512 -i 5000 luksFormat /dev/nvme0n1p2
-cryptsetup luksOpen /dev/nvme0n1p2 cryptlvm
+cryptsetup luksFormat ${SYS_DISK}2
+cryptsetup luksOpen ${SYS_DISK}2 cryptlvm
 
 # Encrypt media partition on SATA SSD
-cryptsetup -s 512 -h sha512 -i 5000 luksFormat /dev/sda1
-cryptsetup luksOpen /dev/sda1 cryptmedia
+cryptsetup luksFormat ${MEDIA_DISK}1
+cryptsetup luksOpen ${MEDIA_DISK}1 cryptmedia
 ```
-Note: With proper kernel parameters (see Section 10), systemd‑cryptsetup caches your passphrase so you only need to enter it once at boot.
 
-## 4. LVM Setup and Filesystem Creation (System Drive)
+**Note:** With proper kernel parameters (see Section 10), `systemd-cryptsetup` can cache your passphrase.
 
-### 4.1 Create LVM on the Decrypted System Partition
+---
+
+## 4. LVM setup and filesystem creation (system drive)
+
+### 4.1 Create LVM on the decrypted system partition
 
 ```bash
 pvcreate /dev/mapper/cryptlvm
 vgcreate vg /dev/mapper/cryptlvm
-lvcreate -L <xG> vg --name swap    # Recommended: 1.5× your RAM, where x is the swap size
-lvcreate -l +100%FREE vg --name root
-````
 
-### 4.2 Format Partitions
+# Recommended: SWAP ≥ RAM for hibernation or at least 4G.
+lvcreate -L <x>G vg --name swap  # Replace <x> with swap size
+lvcreate -l +100%FREE vg --name root
+```
+
+### 4.2 Format partitions
 
 ```bash
-# Format the EFI partition (NVMe partition 1)
-mkfs.fat -F32 -n ESP /dev/nvme0n1p1
+# Format EFI partition
+mkfs.fat -F32 -n ESP ${SYS_DISK}1
 
-# Format the root LV
+# Format root LV
 mkfs.ext4 -L ROOT /dev/vg/root
 
-# Format the media partition on SATA SSD
+# Format media partition
 mkfs.ext4 -L MEDIA /dev/mapper/cryptmedia
 
-# Setup swap on the LV
+# Setup swap
 mkswap -L SWAP /dev/vg/swap
 ```
 
-## 5. Mounting Filesystems
+---
 
-Mount the partitions in the correct order:
+## 5. Mounting filesystems
+
 ```bash
-# Mount the root filesystem
+# Mount root filesystem
 mount /dev/vg/root /mnt
 
-# Create mountpoints for EFI and media
+# Create mountpoints
 mkdir -p /mnt/efi /mnt/media
 
-# Mount the EFI partition
-mount /dev/nvme0n1p1 /mnt/efi
+# Mount EFI partition
+mount ${SYS_DISK}1 /mnt/efi
 
-# Mount the media partition
+# Mount media partition
 mount /dev/mapper/cryptmedia /mnt/media
 
 # Enable swap
 swapon /dev/vg/swap
 ```
 
-## 6. Base System Installation and fstab Generation
+---
 
-### 6.1 Install the Base System
+## 6. Base system installation and fstab
 
-Update mirrors and install packages with pacstrap:
+### 6.1 Install the base system
+
 ```bash
 reflector -f 5 -a 24 -c BR -p https --save /etc/pacman.d/mirrorlist --verbose
+# Add your country code after `-c`; here `BR` is used as an example.
 
-pacstrap -K /mnt base base-devel linux-zen linux-firmware amd-ucode cryptsetup lvm2 vim git iwd
-# (For Intel CPUs, use intel-ucode instead of amd-ucode.)
+pacstrap -K /mnt base base-devel linux-zen linux-firmware amd-ucode cryptsetup lvm2 vim git unbound expat efibootmgr iwd openssh sbctl chronyd
+# Use `intel-ucode` for Intel CPUs instead of `amd-ucode`.
+# Install `sbctl` only if you want Secure Boot.
+# `openssh` is optional.
+# `unbound` and `expat` are needed for DNS; `chronyd` is used for NTP/NTS.
 ```
 
-### 6.2 Generate and Edit fstab
+### 6.2 Generate and edit fstab
 
-Generate fstab:
 ```bash
 genfstab -U /mnt >> /mnt/etc/fstab
 ```
-Now, open vim to edit /mnt/etc/fstab and adjust the entries. For example, replace the generated entries with:
+
+Open `/mnt/etc/fstab` with `vim`:
+
 ```bash
-# EFI partition
-UUID=<EFI_UUID>   /efi   vfat   defaults,noatime,fmask=0137,dmask=0027  0 2
-
-# Root partition
-UUID=<ROOT_UUID>  /      ext4   defaults,noatime   0 1
-
-# Media partition
-UUID=<MEDIA_UUID> /media ext4   defaults,noatime   0 2
-
-# Swap
-UUID=<SWAP_UUID>  none   swap   sw    0 0
+vim /mnt/etc/fstab
 ```
-Replace <EFI_UUID>, <ROOT_UUID>, <MEDIA_UUID>, and <SWAP_UUID> with the actual values from your system.
 
-## 7. Post-pacstrap Configuration (Chroot)
+Adjust `fmask` and `dmask` values from `0022` to `0137` and `0027`, respectively. Replace `relatime` with `noatime` if you prefer no access-time updates.
+
+Example `fstab` entries (<placeholders> shown instead of actual UUIDs):
+
+```ini
+# /dev/mapper/vg-root LABEL=ROOT
+UUID=<ROOT_UUID>   /       ext4    rw,noatime  0 1
+
+# /dev/nvme0n1p1 LABEL=ESP
+UUID=<ESP_UUID>    /efi    vfat    rw,noatime,fmask=0137,dmask=0027,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro  0 2
+
+# /dev/mapper/cryptmedia LABEL=MEDIA
+UUID=<MEDIA_UUID>  /media  ext4    rw,noatime  0 2
+
+# /dev/mapper/vg-swap LABEL=SWAP
+UUID=<SWAP_UUID>   none    swap    defaults    0 0
+```
+
+---
+
+## 7. Post-pacstrap configuration (chroot)
 
 Chroot into the new system:
+
 ```bash
 arch-chroot /mnt bash
 ```
 
-### 7.1 System Configuration
-#### Clock and Timezone
+### 7.1 System configuration
+
+#### Clock and timezone
+
 ```bash
 ln -sf /usr/share/zoneinfo/Region/City /etc/localtime
 hwclock --systohc
 ```
+
 #### Locale
 
-Open vim to edit /etc/locale.gen and uncomment your desired locale (e.g., en_US.UTF-8 UTF-8):
+Open `/etc/locale.gen` with `vim` and uncomment your locale (e.g., `en_US.UTF-8 UTF-8`):
+
 ```bash
 vim /etc/locale.gen
 ```
-Then run:
+
+Generate locales:
+
 ```bash
 locale-gen
 ```
-Now, create or edit /etc/locale.conf with vim:
+
+Open `/etc/locale.conf` with `vim`:
+
 ```bash
 vim /etc/locale.conf
 ```
-Insert:
-```bash
-export LANG="en_US.UTF-8"
-export LC_COLLATE="C"
-```
-#### Console Keymap
 
-Edit /etc/vconsole.conf with vim:
+Insert:
+
+```ini
+LANG="en_US.UTF-8"
+LC_COLLATE="C"
+```
+
+(Using `export` in `/etc/locale.conf` is unnecessary, `/etc/locale.conf` typically contains variable assignments without `export`.)
+
+#### Console keymap
+
+Open `/etc/vconsole.conf` with `vim`:
+
 ```bash
 vim /etc/vconsole.conf
 ```
+
 Insert:
-```bash
+
+```ini
 KEYMAP=br-abnt2
 ```
-#### Hostname and Hosts
 
-Set the hostname:
+#### Hostname and hosts
+
+Set hostname:
+
 ```bash
 echo "arch" > /etc/hostname
 ```
-Edit /etc/hosts with vim:
+
+Open `/etc/hosts` with `vim`:
+
 ```bash
 vim /etc/hosts
 ```
-Insert:
-```bash
-127.0.0.1   localhost
-::1         localhost
-127.0.1.1   arch.localdomain arch
-```
-#### User Setup
 
-Create a new user and set passwords:
-```bash
-useradd -mG wheel yourusername
-passwd yourusername   # Set user password
-passwd                # Set root password
+Note: the first four lines are typically sufficient for a basic configuration.
+
+```ini
+127.0.0.1        localhost local
+127.0.1.1        arch.localdomain arch
+255.255.255.255  broadcasthost
+::1              localhost ip6-localhost ip6-loopback
+fe80::1%lo0      localhost
+ff00::0          ip6-localnet ip6-mcastprefix
+ff02::1          ip6-allnodes
+ff02::2          ip6-allrouters
+ff02::3          ip6-allhosts
+0.0.0.0          0.0.0.0
 ```
-Enable sudo for the wheel group by editing the sudoers file:
+
+#### User setup
+
+Create a user and set passwords:
+
+```bash
+useradd -mG wheel $USER
+passwd $USER          # set password for the newly created user
+passwd                 # set root password
+```
+
+Enable `sudo` for the `wheel` group:
+
 ```bash
 EDITOR=vim visudo
 ```
-Uncomment the line:
-```bash
+
+Uncomment:
+
+```ini
 %wheel ALL=(ALL:ALL) ALL
 ```
 
-## 8. Network Configuration
+---
 
-### 8.1 Enable Network Services
+## 8. Network configuration
 
-Enable the required network services:
+### 8.1 Enable network services
+
+Enable the services you need (this also enables `fstrim.timer` for regular SSD trimming):
+
 ```bash
-systemctl enable systemd-networkd systemd-resolved systemd-timesyncd iwd
+systemctl enable systemd-networkd unbound fstrim.timer iwd openssh chronyd
 ```
 
-### 8.2 WiFi Configuration
+### 8.2 Wi-Fi: MAC randomization & DHCPv4 anonymization
 
-Edit /etc/iwd/main.conf with vim:
+Create the iwd configuration directory and file:
+
 ```bash
+mkdir -p /etc/iwd
 vim /etc/iwd/main.conf
 ```
+
 Insert:
-```bash
+
+```ini
 [General]
-use_default_interface=true
 AddressRandomization=network
 AddressRandomizationRange=full
-AlwaysRandomizeAddress=true
 
+[DriverQuirks]
+PowerSaveDisable=*
 ```
-Create the WiFi network configuration for systemd‑networkd:
+
+For network-specific `.psk` files under `/var/lib/iwd/`, add at the end:
+
+```ini
+[Settings]
+AlwaysRandomizeAddress=true
+```
+
+Create the systemd-networkd file for Wi-Fi:
+
 ```bash
 vim /etc/systemd/network/wifi.network
 ```
+
 Insert:
-```bash
+
+```ini
 [Match]
 Name=wlan0
 
 [Network]
 DHCP=yes
 IPv6PrivacyExtensions=true
+
+[DHCPv4]
+Anonymize=true
 ```
 
-### 8.3 Ethernet Configuration
+Use `ip link` to check the actual interface name; `wlan0` is only an example.
 
-Create the Ethernet network configuration:
+### 8.3 Ethernet: MAC randomization & DHCPv4 anonymization
+
 ```bash
-vim /etc/systemd/network/20-wired.network
+vim /etc/systemd/network/wired.network
 ```
+
 Insert:
-```bash
+
+```ini
 [Match]
 Name=eth0
 
@@ -294,179 +404,391 @@ RequiredForOnline=routable
 [Network]
 DHCP=yes
 IPv6PrivacyExtensions=true
-```
-#### MAC Address Randomization for Ethernet
 
-Create the MAC randomization file:
+[DHCPv4]
+Anonymize=true
+```
+
+Use `ip link` to check the actual interface name; `eth0` is only an example.
+
+Create MAC randomization policy:
+
 ```bash
 vim /etc/systemd/network/01-mac.link
 ```
+
 Insert:
-```bash
+
+```ini
 [Match]
 MACAddressPolicy=random
 ```
 
-### 8.4 DNS Configuration (systemd-resolved)
+### 8.4 Resolve DNS with Unbound and AdGuard
 
-Edit /etc/systemd/resolved.conf with vim:
+Fetch the `unbound.conf` from the referenced repo:
+
 ```bash
-vim /etc/systemd/resolved.conf
+git clone https://codeberg.org/Unclaimed3646/unbound.git
+cd unbound
+cat unbound.conf > /etc/unbound/unbound.conf
 ```
+
+### 8.5 Configure chronyd as an NTP/NTS client
+
+```bash
+vim /etc/chrony.conf
+```
+
 Insert:
-```bash
-[Resolve]
-DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com
-FallbackDNS=9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net 2620:fe::fe#dns.quad9.net 2620:fe::9#dns.quad9.net
-DNSSEC=yes
-DNSOverTLS=yes
-MulticastDNS=no
-````
 
-### 8.5 NTP Configuration (systemd-timesyncd)
-
-Edit /etc/systemd/timesyncd.conf with vim:
-```bash
-vim /etc/systemd/timesyncd.conf
-```
-Insert:
-```bash
-[Time]
-NTP=0.br.pool.ntp.org 1.br.pool.ntp.org 2.br.pool.ntp.org 3.br.pool.ntp.org
-FallbackNTP=0.arch.pool.ntp.org 1.arch.pool.ntp.org 2.arch.pool.ntp.org 3.arch.pool.ntp.org
+```ini
+server gps.ntp.br iburst nts
 ```
 
-## 9. Configuring mkinitcpio and UKI
-
-Before regenerating the initramfs, perform the following steps:
-
-    Create the UKI directory:
-```bash
-mkdir -p /efi/EFI/Linux
-```
-Edit the preset file:
-Open vim to edit /etc/mkinitcpio.d/linux-zen.preset:
-```bash
-vim /etc/mkinitcpio.d/linux-zen.preset
-```
-    Uncomment all lines related to UKI.
-    Comment out all lines related to "image".
-    Optional: Remove any mentions to initramfs from /boot if desired.
-
-Edit /etc/mkinitcpio.conf with vim to set up the initramfs with systemd‑based hooks:
-```bash
-vim /etc/mkinitcpio.conf
-```
-Locate the line starting with HOOKS= and change it to:
-```bash
-HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt lvm2 filesystems fsck)
-```
-
-## 10. Kernel Command Line Configuration (Unified Unlock)
-
-Edit your kernel command line (for example, in /etc/kernel/cmdline or via your bootloader entry) to include:
-```bash
-rd.luks.name=<NVMe_UUID>=cryptlvm rd.luks.options=<NVMe_UUID>=discard \
-rd.luks.name=<SATA_UUID>=cryptmedia rd.luks.options=<SATA_UUID>=discard \
-root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw [additional parameters]
-```
-    Important: Replace <NVMe_UUID>, <SATA_UUID>, <ROOT_UUID>, and <SWAP_UUID> with the actual UUIDs (e.g., obtained using blkid -s UUID -o value /dev/nvme0n1p2).
-    My additional parameters: ... quiet loglevel=3 systemd.show.status=auto rd.udev.log_level=3 zswap.compressor=lz4 sysctl.vm.swappiness=10 nowatchdog module_blacklist=nouveau,iTCO_wdt,sp5100_tco,wdat_wdt,pcspkr
-Now, regenerate the initramfs:
-```bash
-mkinitcpio -P
-````
-
-## 11. Boot Loader Installation (systemd‑boot with UKI)
-
-Install systemd‑boot into the EFI partition:
-```bash
-bootctl install --esp-path=/efi
-```
-Ensure your loader configuration (for example, /boot/loader/loader.conf) and kernel entry files are set up so that the Unified Kernel Image (UKI) is detected automatically.
-
-    Tip: Re-run bootctl install after updating fstab and your UKIs to refresh bootloader entries.
-
-You may create a pacman hook to update bootctl whenever systemd is upgraded, however you should still pay attention to any changes that may warrent an update:
-```bash
-mkdir /etc/pacman.d/hooks
-vim /etc/pacman.d/hooks/95-systemd-boot.hook
-```
-This hook will run anytime a systemd related package is upgraded.
-```bash
-[Trigger]
-Type = Package
-Operation = Upgrade
-Target = systemd
-
-[Action]
-Description = Gracefully upgrading systemd-boot...
-When = PostTransaction
-Exec = /usr/bin/systemctl restart systemd-boot-update.service
-```
-
-## 12. Finalizing and Reboot
-
-Exit the chroot and finish the installation:
-```bash
-exit
-sync
-poweroff
-```
-After reboot, you should be prompted for the encrypted volumes. Enter your passphrase once, and systemd‑cryptsetup will unlock both the system (LVM root) and media partitions automatically.
+You will want to change the server to one close to you; see https://github.com/jauderho/nts-servers for NTS-capable servers.
 
 ---
 
-# Post Install addons
+## 9. Configuring mkinitcpio and UKI
 
-## 1. Enable silent boot
-
-### 1.1. Silent autologin after boot
-
-Autologin into your user, so you only have to type your password once
 ```bash
-mkdir -p /etc/systemd/system/getty@tty1.service.d/
-vim /etc/systemd/system/getty@tty1.service.d/autologin.conf
+mkdir -p /efi/EFI/Linux
+vim /etc/mkinitcpio.d/linux-zen.preset
 ```
-Replace username with your username
+
+- Uncomment all lines related to UKI.  
+- Comment out `image` lines if you are using UKI only.  
+- (Optional) Remove `/boot` initramfs if desired.
+
+Open `/etc/mkinitcpio.conf` with `vim`:
+
 ```bash
+vim /etc/mkinitcpio.conf
+```
+
+Set the `HOOKS=` line (example):
+
+```ini
+HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt lvm2 filesystems fsck)
+```
+
+---
+
+## 10. Kernel command line (unified unlock)
+
+Open `/etc/kernel/cmdline` and insert something like:
+
+```bash
+rd.luks.name=${SYS_DISK}2=cryptlvm rd.luks.options=${SYS_DISK}2=timeout=300s,discard,x-initrd.attach,password-echo=no,tries=5,tpm2-measure-pcr=yes \
+rd.luks.name=${MEDIA_DISK}1=cryptmedia rd.luks.options=${MEDIA_DISK}1=timeout=300s,discard,x-initrd.attach,password-echo=no,tries=5,tpm2-measure-pcr=yes \
+root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw [additional_parameters]
+```
+
+Note: `x-initrd.attach` and `tpm2-measure-pcr=yes` is only needed if you are using TPM. Replace `${SYS_DISK}2`, `${MEDIA_DISK}1`, `<ROOT_UUID>`, and `<SWAP_UUID>` with the actual device names and UUIDs (for example, obtained using `blkid -s UUID -o value ${SYS_DISK}2` and `blkid -s UUID -o value /dev/mapper/vg-root`).
+
+Example additional kernel parameters:
+
+```bash
+# Example additional parameters:
+quiet mitigations=off amdgpu.dc=1 loglevel=3 systemd.show_status=auto rd.udev.log_level=3 zswap.compressor=lz4 sysctl.vm.swappiness=10 nowatchdog module_blacklist=nouveau,i915,radeon,iTCO_wdt,sp5100_tco,wdat_wdt,pcspkr,mgag200,uvcvideo
+```
+
+Then regenerate initramfs:
+
+```bash
+mkinitcpio -P
+```
+
+---
+
+## 11. EFISTUB
+
+Create an EFISTUB entry:
+
+```bash
+efibootmgr -d ${SYS_DISK} -p 1 -c -L Arch -l '\EFI\Linux\arch-linux-zen.efi' -v
+```
+
+---
+
+## 12. Enabling Secure Boot
+
+Check sbctl status and verify:
+
+```bash
+sbctl status
+sbctl verify
+```
+
+Create and enroll keys:
+
+```bash
+sbctl create-keys
+sbctl enroll-keys -m
+```
+
+Sign UKIs:
+
+```bash
+sbctl sign -s /efi/EFI/Linux/arch-linux-zen.efi
+sbctl sign -s /efi/EFI/Linux/arch-linux-zen-fallback.efi
+```
+
+---
+
+## 13. Reboot to save status before enabling TPM
+
+```bash
+exit
+sync
+systemctl reboot --firmware-setup
+```
+
+Before booting, re-enable Secure Boot in your BIOS to its regular state if you plan on using it.
+
+Reboot. At boot, enter the passphrase once; `systemd-cryptsetup` will unlock both partitions automatically (if configured).
+
+---
+
+## 14. Enabling TPM
+
+Export your drive paths again (repeat if needed):
+
+```bash
+# Example:
+# export SYS_DISK="/dev/nvme0n1"
+# export MEDIA_DISK="/dev/sda"
+
+# In a VM, your main disk might be /dev/vda and your second /dev/vdb.
+# Always check with lsblk.
+
+export SYS_DISK="/dev/nvme0n1"
+export MEDIA_DISK="/dev/sda"
+
+# If a disk is NVMe, then values like ${SYS_DISK}2 or ${SYS_DISK}1 should instead be ${SYS_DISK}p2 or ${SYS_DISK}p1
+```
+
+Create a recovery key (optional):
+
+```bash
+systemd-cryptenroll ${SYS_DISK}2 --recovery-key
+systemd-cryptenroll ${MEDIA_DISK}1 --recovery-key
+```
+
+Enroll TPM (remove `7` from `--tpm2-pcrs=0+7+15` if you are not using Secure Boot). There are 64 zeros in the example below:
+
+```bash
+systemd-cryptenroll --wipe-slot tpm2 --tpm2-device=auto --tpm2-pcrs=0+7+15:sha256=0000000000000000000000000000000000000000000000000000000000000000 --tpm2-with-pin=yes ${SYS_DISK}2
+systemd-cryptenroll --wipe-slot tpm2 --tpm2-device=auto --tpm2-pcrs=0+7+15:sha256=0000000000000000000000000000000000000000000000000000000000000000 --tpm2-with-pin=yes ${MEDIA_DISK}1
+```
+
+Add TPM module support (list TPM devices and add module to mkinitcpio.conf ):
+
+```bash
+systemd-cryptenroll --tpm2-device=list
+vim /etc/mkinitcpio.conf
+```
+
+Add the appropriate module name(s) to `MODULES=` array.
+
+```bash
+mkinitcpio -P
+```
+
+---
+
+## 15. Point `resolv.conf` to loopback
+
+```bash
+vim /etc/resolv.conf
+```
+
+Insert:
+
+```ini
+nameserver ::1
+nameserver 127.0.0.1
+options edns0 trust-ad
+```
+
+Prevent future overwriting:
+
+```bash
+sudo chattr +i /etc/resolv.conf
+```
+
+---
+
+# Post-install addons
+
+From now on, commands show `sudo` when appropriate.
+
+### 1. Silent boot autologin
+
+```bash
+sudo mkdir -p /etc/systemd/system/getty@tty1.service.d/
+sudo vim /etc/systemd/system/getty@tty1.service.d/autologin.conf
+```
+
+Insert:
+
+```ini
 [Service]
 ExecStart=
-ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin username --noclear %I $TERM
+ExecStart=-/usr/bin/agetty --skip-login --nonewline --noissue --autologin $USER --noclear %I $TERM
 ```
 
-### 1.2. Disable most kernel messages at boot
-
-```bash
-vim /etc/kernel/cmdline
-```
-Add these kernel parameters at the end of your kernel command line
-```bash
-quiet loglevel=3 systemd.show_status=auto rd.udev.log_level=3
-```
-
-## 2. Enable audio with pipewire and wireplumber
+### 2. Enable sysrq
 
 ```bash
-pacman -S pipewire pipewire-pulse pipewire-alsa pipewire-jack wireplumber
+echo "kernel.sysrq = 1" | sudo tee /usr/lib/sysctl.d/50-sysrq.conf >/dev/null
 ```
-Enable pipewire and wireplumber, *this command will NOT work as root*
+
+### 3. PipeWire & WirePlumber
+
+Install PipeWire and WirePlumber:
+
+```bash
+sudo pacman -S pipewire pipewire-pulse pipewire-alsa pipewire-jack wireplumber
+```
+
+Enable the user services (do this as the user, not as root):
+
 ```bash
 systemctl --user enable pipewire pipewire-pulse wireplumber
 ```
 
-## 3. Use networkd to resolve your DNS, stuff will break without this
+### 4. Media subdirectories access
+
+Create a top-level media directory, then create a subdirectory and set permissions (example):
 
 ```bash
-rm -f /etc/resolv.conf
-ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+sudo mkdir -p /media
+cd /media
+sudo mkdir foo
+sudo chown root:wheel foo
+sudo chmod 770 foo
+ln -s /media/ ~/bar
 ```
-You might not be able to do this during setup, so I included it here
 
-## 4. Make sub-directories under /media accesible to users in the wheel group
+### 5. GPG key issues
 
 ```bash
-mkdir /media/whatever
-chown root:wheel whatever
-chmod 770 whatever
+gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv X
 ```
+
+### 6. Paru (AUR helper)
+
+Do not run `makepkg` as `root` or with `sudo`. Install build tools and paru:
+
+```bash
+sudo pacman -S --needed base-devel
+git clone https://aur.archlinux.org/paru-bin.git
+cd paru
+makepkg -si
+```
+
+### 7. ALHP optimized repo
+
+Check if your CPU supports the optimizations:
+
+```bash
+/lib/ld-linux-x86-64.so.2 --help
+```
+
+Use all optimization levels your CPU supports (e.g., `x86-64-v3`, `x86-64-v2`) so the system prefers v3 but can fall back.
+
+Get keys and enable the repos:
+
+```bash
+paru -S alhp-keyring alhp-mirrorlist
+```
+
+Modify `/etc/pacman.conf` to include the new mirrorlists, for example:
+
+```ini
+[core-x86-64-v3]
+Include = /etc/pacman.d/alhp-mirrorlist
+
+[core-x86-64-v2]
+Include = /etc/pacman.d/alhp-mirrorlist
+
+[core]
+Include = /etc/pacman.d/mirrorlist
+
+[extra-x86-64-v3]
+Include = /etc/pacman.d/alhp-mirrorlist
+
+[extra-x86-64-v2]
+Include = /etc/pacman.d/alhp-mirrorlist
+
+[extra]
+Include = /etc/pacman.d/mirrorlist
+
+# if you need [multilib] support
+[multilib-x86-64-v3]
+Include = /etc/pacman.d/alhp-mirrorlist
+
+[multilib-x86-64-v2]
+Include = /etc/pacman.d/alhp-mirrorlist
+
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+```
+
+Update your packages (do not run `paru` as root):
+
+```bash
+paru
+```
+
+### 8. Chrooting into an encrypted system with LVM if needed
+
+```bash
+sudo cryptsetup luksOpen /dev/nvme0n1p2 cryptlvm
+sudo vgchange -ay
+sudo mount /dev/mapper/vg-root /mnt
+sudo arch-chroot /mnt bash
+```
+
+### 9. Disabling sleep key (acpi_event)
+
+If your sleep key is problematic (e.g., too close to `Esc`), add to `/etc/systemd/logind.conf`:
+
+```ini
+HandleSuspendKey=ignore
+```
+
+### 10. Using TLP
+
+```bash
+sudo pacman -S tlp
+sudo systemctl enable tlp
+sudo systemctl mask systemd-rfkill.service systemd-rfkill.socket
+```
+
+Edit TLP settings:
+
+```bash
+sudo vim /etc/tlp.d/10-wifi-bluetooth.conf
+```
+
+Insert:
+
+```ini
+DEVICES_TO_ENABLE_ON_STARTUP="wifi bluetooth"
+```
+
+```bash
+sudo vim /etc/tlp.d/20-disable-usb-autosuspend.conf
+```
+
+Insert:
+
+```ini
+USB_AUTOSUSPEND=0
+```
+
+---
+**TODO:** dm-crypt headerless option, script version.
