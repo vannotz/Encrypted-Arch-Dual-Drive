@@ -6,9 +6,9 @@ This guide installs Arch Linux on a UEFI system with multiple encrypted drives:
 - **SATA SSD**: `${MEDIA_DISK}` — used for media storage (encrypted as a single ext4 partition).  
 - **Optional**: Secure Boot and TPM 2.0.
 
-If you plan to use Secure Boot, set it to **Setup Mode** in the BIOS. If using TPM, ensure your system supports **TPM 2.0** since this guide does not cover older versions. You can skip Secure Boot or TPM steps if you do not need them, and you can choose to use only one or the other. However, if you use TPM without Secure Boot, remove `7` from `--tpm2-pcrs=0+7+15` in Section 14. If you only have one disk, ignore commands related to the second disk (`${MEDIA_DISK}`).
+If you plan to use Secure Boot, set it to **Setup Mode** in the BIOS. If using TPM, ensure your system supports **TPM 2.0** since this guide does not cover older versions. You can skip Secure Boot or TPM steps if you do not need them, and you can choose to use only one or the other. However, if you use TPM without Secure Boot, remove `7` from `--tpm2-pcrs=7+15:sha256` in Section 14. If you only have one disk, ignore commands related to the second disk (`${MEDIA_DISK}`).
 
-Both encrypted partitions are unlocked at boot using a single passphrase via `systemd-cryptsetup` auto-unlock (configured through kernel parameters, meaning no `crypttab`) and TPM. This guide also covers detailed network setup (Wi-Fi and/or Ethernet with MAC randomization, DNS with DNSSEC/DoT, and NTP/NTS).
+Both encrypted partitions are unlocked at boot using a single passphrase via `systemd-cryptsetup` auto-unlock and TPM. This guide also covers detailed network setup (Wi-Fi and/or Ethernet with MAC randomization, DNS with DNSSEC/DoT, and NTP/NTS).
 
 **Note:** All commands assume root privileges (or `sudo`). Adjust device names (e.g., `/dev/nvme0n1`, `/dev/sda`), locale (e.g., `en_US.UTF-8`), timezone, and network settings (e.g., `wlan0`, `eth0`) as needed. **Backup important data before proceeding!**
 
@@ -104,14 +104,14 @@ Encrypt both the system and media partitions using LUKS (use the same strong pas
 ```bash
 # Encrypt system partition on NVMe
 cryptsetup luksFormat ${SYS_DISK}2
-cryptsetup luksOpen ${SYS_DISK}2 cryptlvm
+cryptsetup --perf-no_read_workqueue --perf-no_write_workqueue --allow-discards --persistent luksOpen ${SYS_DISK}2 cryptlvm
 
 # Encrypt media partition on SATA SSD
 cryptsetup luksFormat ${MEDIA_DISK}1
-cryptsetup luksOpen ${MEDIA_DISK}1 cryptmedia
+cryptsetup --perf-no_read_workqueue --perf-no_write_workqueue --allow-discards --persistent luksOpen ${MEDIA_DISK}1 cryptmedia
 ```
 
-**Note:** With proper kernel parameters (see Section 10), `systemd-cryptsetup` can cache your passphrase.
+**Note:** There are security concerns related to SSD trimming, enabled by the `--allow-discards` argument, do your own research.
 
 ---
 
@@ -124,8 +124,8 @@ pvcreate /dev/mapper/cryptlvm
 vgcreate vg /dev/mapper/cryptlvm
 
 # Recommended: SWAP ≥ RAM for hibernation or at least 4G.
-lvcreate -L <x>G vg --name swap  # Replace <x> with swap size
-lvcreate -l +100%FREE vg --name root
+lvcreate -L <x>G vg -n swap  # Replace <x> with swap size
+lvcreate -l +100%FREE vg -n root
 ```
 
 ### 4.2 Format partitions
@@ -196,7 +196,7 @@ vim /mnt/etc/fstab
 
 Adjust `fmask` and `dmask` values from `0022` to `0137` and `0027`, respectively. Replace `relatime` with `noatime` if you prefer no access-time updates.
 
-Example `fstab` entries (<placeholders> shown instead of actual UUIDs):
+Example `fstab` entries (placeholders shown instead of actual UUIDs):
 
 ```ini
 # /dev/mapper/vg-root LABEL=ROOT
@@ -288,7 +288,7 @@ Open `/etc/hosts` with `vim`:
 vim /etc/hosts
 ```
 
-Note: the first four lines are typically sufficient for a basic configuration.
+**Note**: The first four lines are typically sufficient for a basic configuration.
 
 ```ini
 127.0.0.1        localhost local
@@ -475,17 +475,15 @@ HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block 
 
 ---
 
-## 10. Kernel command line (unified unlock)
+## 10. Kernel command line and crypttab
 
 Open `/etc/kernel/cmdline` and insert something like:
 
-```bash
-rd.luks.name=${SYS_DISK}2=cryptlvm rd.luks.options=${SYS_DISK}2=timeout=300s,discard,x-initrd.attach,password-echo=no,tries=5,tpm2-measure-pcr=yes \
-rd.luks.name=${MEDIA_DISK}1=cryptmedia rd.luks.options=${MEDIA_DISK}1=timeout=300s,discard,x-initrd.attach,password-echo=no,tries=5,tpm2-measure-pcr=yes \
-root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw [additional_parameters]
+```ini
+rd.luks.name=<${SYS_DISK}2_UUID>=cryptlvm rd.luks.name=<${MEDIA_DISK}1_UUID>=cryptmedia root=UUID=<ROOT_UUID> resume=UUID=<SWAP_UUID> rw [additional_parameters]
 ```
 
-Note: `x-initrd.attach` and `tpm2-measure-pcr=yes` is only needed if you are using TPM. Replace `${SYS_DISK}2`, `${MEDIA_DISK}1`, `<ROOT_UUID>`, and `<SWAP_UUID>` with the actual device names and UUIDs (for example, obtained using `blkid -s UUID -o value ${SYS_DISK}2` and `blkid -s UUID -o value /dev/mapper/vg-root`).
+**Note**: Replace `<${SYS_DISK}2_UUID>`, `<${MEDIA_DISK}1_UUID>`, `<ROOT_UUID>`, and `<SWAP_UUID>` with the actual device names and UUIDs (for example, obtained using `blkid -s UUID -o value ${SYS_DISK}2` and `blkid -s UUID -o value /dev/mapper/vg-root`).
 
 Example additional kernel parameters:
 
@@ -493,6 +491,16 @@ Example additional kernel parameters:
 # Example additional parameters:
 quiet mitigations=off amdgpu.dc=1 loglevel=3 systemd.show_status=auto rd.udev.log_level=3 zswap.compressor=lz4 sysctl.vm.swappiness=10 nowatchdog module_blacklist=nouveau,i915,radeon,iTCO_wdt,sp5100_tco,wdat_wdt,pcspkr,mgag200,uvcvideo
 ```
+
+Open `/etc/crypttab.initramfs` and insert something like:
+
+```ini
+cryptlvm	UUID=<${SYS_DISK}2_UUID>	none	discard,timeout=120s,tries=5,password-echo=no,no-read-workqueue,no-write-workqueue,x-initrd.attach
+
+cryptmedia	UUID=<${MEDIA_DISK}1_UUID>	none	discard,timeout=120s,tries=5,password-echo=no,no-read-workqueue,no-write-workqueue
+```
+
+**Note**: There are security concerns related to SSD trimming, enabled by the `discard` flag, do your own research.
 
 Then regenerate initramfs:
 
@@ -576,11 +584,21 @@ systemd-cryptenroll ${SYS_DISK}2 --recovery-key
 systemd-cryptenroll ${MEDIA_DISK}1 --recovery-key
 ```
 
-Enroll TPM (remove `7` from `--tpm2-pcrs=0+7+15` if you are not using Secure Boot). There are 64 zeros in the example below:
+Enroll TPM (remove `7` from `--tpm2-pcrs=7+15` if you are not using Secure Boot). There are 64 zeros in the example below:
 
 ```bash
-systemd-cryptenroll --wipe-slot tpm2 --tpm2-device=auto --tpm2-pcrs=0+7+15:sha256=0000000000000000000000000000000000000000000000000000000000000000 --tpm2-with-pin=yes ${SYS_DISK}2
-systemd-cryptenroll --wipe-slot tpm2 --tpm2-device=auto --tpm2-pcrs=0+7+15:sha256=0000000000000000000000000000000000000000000000000000000000000000 --tpm2-with-pin=yes ${MEDIA_DISK}1
+systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7+15:sha256=0000000000000000000000000000000000000000000000000000000000000000 --tpm2-with-pin=yes ${SYS_DISK}2
+systemd-cryptenroll --wipe-slot tpm2 --tpm2-device=auto --tpm2-pcrs=7+15:sha256=0000000000000000000000000000000000000000000000000000000000000000 --tpm2-with-pin=yes ${MEDIA_DISK}1
+```
+
+**Note**: PCRs were choosen according the recommendations on systemd-cryptenroll's man page, you may need to modify it (besides just for Secure Boot). For example, the man page also recommends the PCR 11 and 14, but my system did not support it.
+
+Modify `/etc/crypttab.initramfs` and add TPM2 flags after `x-initrd.attach` or `no-write-workqueue`:
+
+```ini
+cryptlvm	UUID=<${SYS_DISK}2_UUID>	none	discard,timeout=120s,tries=5,password-echo=no,no-read-workqueue,no-write-workqueue,x-initrd.attach,tpm2-device=auto,tpm2-measure-pcr=yes
+
+cryptmedia	UUID=<${MEDIA_DISK}1_UUID>	none	discard,timeout=120s,tries=5,password-echo=no,no-read-workqueue,no-write-workqueue,tpm2-device=auto,tpm2-measure-pcr=yes
 ```
 
 Add TPM module support (list TPM devices and add module to mkinitcpio.conf ):
@@ -591,6 +609,8 @@ vim /etc/mkinitcpio.conf
 ```
 
 Add the appropriate module name(s) to `MODULES=` array.
+
+Then regenerate initramfs:
 
 ```bash
 mkinitcpio -P
@@ -791,4 +811,4 @@ USB_AUTOSUSPEND=0
 ```
 
 ---
-**TODO:** dm-crypt headerless option, script version.
+**TODO:** migrate to btrfs, encrypted boot partition with grub, single lvm group for both disks, dm-crypt headerless option, script version.
