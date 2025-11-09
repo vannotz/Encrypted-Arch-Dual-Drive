@@ -811,4 +811,4 @@ USB_AUTOSUSPEND=0
 ```
 
 ---
-**TODO:** migrate to btrfs, encrypted boot partition with grub, single lvm group for both disks, dm-crypt headerless option, script version.
+**TODO:** migrate to btrfs, separated /boot and /efi partitions, encrypted boot partition with grub, dm-crypt headerless option, script version.
